@@ -1,0 +1,150 @@
+// ============================================================================
+// DAX MEASURES  (Power BI Desktop -> Modeling -> New measure; paste one at a time)
+// TIP: first create an empty table for measures:  Home -> Enter data -> name it "_Measures" -> Load.
+//      Then right-click _Measures -> New measure for each block below.
+// Model: dim_date -> fact_orders -> fact_order_items / fact_payments / fact_reviews
+//        dim_customers -> fact_orders ; dim_products, dim_sellers -> fact_order_items
+// ============================================================================
+
+// ---------------------------- CORE KPIs ---------------------------------------
+Revenue = SUM ( fact_order_items[price] )
+
+Freight Revenue = SUM ( fact_order_items[freight_value] )
+
+Gross Merchandise Value = [Revenue] + [Freight Revenue]
+
+Orders = DISTINCTCOUNT ( fact_order_items[order_id] )
+
+Items Sold = COUNTROWS ( fact_order_items )
+
+Customers = DISTINCTCOUNT ( dim_customers[customer_unique_id] )
+
+Average Order Value = DIVIDE ( [Revenue], [Orders] )
+
+Items per Order = DIVIDE ( [Items Sold], [Orders] )
+
+Freight % of Revenue = DIVIDE ( [Freight Revenue], [Revenue] )
+
+// ---------------------------- TIME INTELLIGENCE -------------------------------
+// (dim_date must be marked as Date table: Table tools -> Mark as date table -> column "date")
+Revenue PY = CALCULATE ( [Revenue], SAMEPERIODLASTYEAR ( dim_date[date] ) )
+
+Revenue YoY % = DIVIDE ( [Revenue] - [Revenue PY], [Revenue PY] )
+
+Revenue PM = CALCULATE ( [Revenue], DATEADD ( dim_date[date], -1, MONTH ) )
+
+Revenue MoM % = DIVIDE ( [Revenue] - [Revenue PM], [Revenue PM] )
+
+Revenue YTD = TOTALYTD ( [Revenue], dim_date[date] )
+
+Revenue Rolling 3M =
+CALCULATE ( [Revenue], DATESINPERIOD ( dim_date[date], MAX ( dim_date[date] ), -3, MONTH ) )
+
+Revenue Running Total =
+CALCULATE ( [Revenue], FILTER ( ALL ( dim_date[date] ), dim_date[date] <= MAX ( dim_date[date] ) ) )
+
+// ---------------------------- CUSTOMERS ---------------------------------------
+Repeat Customers =
+COUNTROWS (
+    FILTER (
+        SUMMARIZE ( fact_orders, dim_customers[customer_unique_id], "n", DISTINCTCOUNT ( fact_orders[order_id] ) ),
+        [n] > 1
+    )
+)
+
+Repeat Customer Rate = DIVIDE ( [Repeat Customers], [Customers] )
+
+Revenue per Customer = DIVIDE ( [Revenue], [Customers] )
+
+// ---------------------------- PRODUCTS & SELLERS ------------------------------
+Sellers = DISTINCTCOUNT ( fact_order_items[seller_id] )
+
+Categories Sold = DISTINCTCOUNT ( dim_products[category] )
+
+Revenue Share % = DIVIDE ( [Revenue], CALCULATE ( [Revenue], ALL ( dim_products ) ) )
+
+Category Rank = RANKX ( ALL ( dim_products[category] ), [Revenue], , DESC, Dense )
+
+Top 10 Category Revenue = IF ( [Category Rank] <= 10, [Revenue] )
+
+Seller Revenue Rank = RANKX ( ALL ( dim_sellers[seller_id] ), [Revenue], , DESC, Dense )
+
+// Pareto: share of total revenue contributed by the cumulative categories (use on a line + bar chart)
+Cumulative Revenue Share % =
+VAR CurrentRev = [Revenue]
+VAR AllRev = CALCULATE ( [Revenue], ALL ( dim_products[category] ) )
+VAR Cum =
+    SUMX (
+        FILTER ( ALL ( dim_products[category] ), CALCULATE ( [Revenue] ) >= CurrentRev ),
+        CALCULATE ( [Revenue] )
+    )
+RETURN DIVIDE ( Cum, AllRev )
+
+// ---------------------------- LOGISTICS ---------------------------------------
+Delivered Orders = CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[is_delivered] = 1 )
+
+Late Orders = CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[is_late] = 1 )
+
+Late Delivery % = DIVIDE ( [Late Orders], [Delivered Orders] )
+
+On-time Delivery % = 1 - [Late Delivery %]
+
+Avg Delivery Days = CALCULATE ( AVERAGE ( fact_orders[delivery_days] ), fact_orders[is_delivered] = 1 )
+
+Avg Estimated Days = CALCULATE ( AVERAGE ( fact_orders[estimated_days] ), fact_orders[is_delivered] = 1 )
+
+Avg Delay (late orders only) = CALCULATE ( AVERAGE ( fact_orders[delay_days] ), fact_orders[is_late] = 1 )
+
+Cancelled Orders % = DIVIDE ( CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[status] = "canceled" ), COUNTROWS ( fact_orders ) )
+
+// ---------------------------- SATISFACTION ------------------------------------
+Avg Review Score = AVERAGE ( fact_reviews[score] )
+
+Reviews = COUNTROWS ( fact_reviews )
+
+Positive Reviews % = DIVIDE ( CALCULATE ( COUNTROWS ( fact_reviews ), fact_reviews[score] >= 4 ), [Reviews] )
+
+Negative Reviews % = DIVIDE ( CALCULATE ( COUNTROWS ( fact_reviews ), fact_reviews[score] <= 2 ), [Reviews] )
+
+// NPS-like score: %5-star minus %1-2 star
+Review Net Score =
+DIVIDE ( CALCULATE ( COUNTROWS ( fact_reviews ), fact_reviews[score] = 5 ), [Reviews] ) - [Negative Reviews %]
+
+Avg Review Score (Late) = CALCULATE ( AVERAGE ( fact_reviews[score] ), fact_orders[is_late] = 1 )
+
+Avg Review Score (On time) = CALCULATE ( AVERAGE ( fact_reviews[score] ), fact_orders[is_late] = 0, fact_orders[is_delivered] = 1 )
+
+// ---------------------------- PAYMENTS ----------------------------------------
+Payment Value = SUM ( fact_payments[payment_value] )
+
+Avg Installments = AVERAGE ( fact_payments[installments] )
+
+Credit Card Share % =
+DIVIDE ( CALCULATE ( [Payment Value], fact_payments[payment_type] = "credit_card" ), [Payment Value] )
+
+// ---------------------------- DYNAMIC TITLES / FORMATTING ---------------------
+Title Revenue = "Revenue: R$ " & FORMAT ( [Revenue], "#,0" ) & " | YoY " & FORMAT ( [Revenue YoY %], "+0.0%;-0.0%" )
+
+YoY Color = IF ( [Revenue YoY %] >= 0, "#2E9E6B", "#D64545" )
+
+// ---------------------------- CALCULATED COLUMNS (Modeling -> New column) ----
+// On fact_orders:
+Delivery Bucket =
+SWITCH (
+    TRUE (),
+    ISBLANK ( fact_orders[delivery_days] ), "Not delivered",
+    fact_orders[delivery_days] <= 7, "0-7 days",
+    fact_orders[delivery_days] <= 14, "8-14 days",
+    fact_orders[delivery_days] <= 21, "15-21 days",
+    "22+ days"
+)
+
+// On fact_order_items:
+Price Band =
+SWITCH (
+    TRUE (),
+    fact_order_items[price] < 50, "< R$50",
+    fact_order_items[price] < 150, "R$50-150",
+    fact_order_items[price] < 500, "R$150-500",
+    "R$500+"
+)
