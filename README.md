@@ -78,3 +78,10 @@ columns, aggregates 1M geolocation rows to one row per ZIP prefix, builds a date
 | Numbers show as text / wrong dates | re-paste the M block (it sets types with `en-US` culture) |
 | Visuals blank after slicing by category | expected for order-level measures (Late Delivery %) - these are on `fact_orders`, which products do not filter |
 | Map shows wrong places | set `dim_state[map_location]` data category = "State or Province" |
+
+## Dashboard
+<img width="1917" height="1016" alt="Screenshot 2026-10-05 032302" src="https://github.com/user-attachments/assets/3198a311-4ec0-4b98-9984-87569babddec" />
+
+<img width="1321" height="1003" alt="Screenshot 2026-10-05 041624" src="https://github.com/user-attachments/assets/f4ec2516-26fb-4d1f-b88f-d48b8c3fa05c" />
+
+
